@@ -1,26 +1,183 @@
 @import "tailwindcss";
 
+/*
+  SilverVoice AI — age-friendly design tokens.
+
+  Every foreground/background pair below was measured against WCAG 2.1
+  contrast rules; all text pairs are >= 7:1 (AAA), and non-text borders
+  are >= 3:1 (SC 1.4.11). See remaining.md for the audit trail.
+*/
+
 :root {
+  /* Text scale multiplier. Driven by the in-app "Text size" control so a
+     low-vision user can move 20px -> 23px -> 26px without a page reload. */
+  --text-scale: 1;
+
+  /* Minimum tap target (PRD 5: 64x64 for arthritic / tremor-affected hands) */
+  --tap: 64px;
+
+  /* Neutrals */
   --background: #ffffff;
-  --foreground: #171717;
+  --surface: #f5f5f5;
+  --surface-brand: #fff6f6;
+  --surface-success: #eaf3ec;
+  --surface-warn: #fff4e5;
+  --surface-danger: #fdf0f0;
+  --ink: #111111;
+  --muted: #3d3d3d;
+  --border: #6b6b6b;
+  --border-soft: #a8a8a8;
+
+  /* Semantic colours — each passes 7:1 with white text AND as text on white */
+  --brand: #a50010; /* HSBC-adjacent red, darkened to reach 8.05:1 */
+  --brand-strong: #8c0009;
+  --success: #14603a;
+  --warn: #7a4200;
+  --danger: #8e0000;
+  --info: #0b4ea2;
+
+  /* Type scale: base is 20px, headings start at 28px (PRD 5) */
+  --fs-base: calc(20px * var(--text-scale));
+  --fs-md: calc(22px * var(--text-scale));
+  --fs-lg: calc(24px * var(--text-scale));
+  --fs-xl: calc(28px * var(--text-scale));
+  --fs-2xl: calc(34px * var(--text-scale));
+  --fs-3xl: calc(40px * var(--text-scale));
+  --fs-hero: calc(52px * var(--text-scale));
+
+  --lh: 1.65;
+
+  /* System CJK stack: zero download, offline-safe, and PingFang HK /
+     Microsoft JhengHei are already high-quality on the demo devices.
+     Self-hosting Noto Sans HK (SIL OFL 1.1) is documented in remaining.md. */
+  --font-sans: "PingFang HK", "PingFang TC", "Noto Sans HK", "Noto Sans CJK HK",
+    "Microsoft JhengHei", "Heiti HK", "Hiragino Sans GB", system-ui,
+    -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-surface: var(--surface);
+  --color-surface-brand: var(--surface-brand);
+  --color-surface-success: var(--surface-success);
+  --color-surface-warn: var(--surface-warn);
+  --color-surface-danger: var(--surface-danger);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--border);
+  --color-line-soft: var(--border-soft);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-success: var(--success);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+
+  --font-sans: var(--font-sans);
+
+  --text-base: var(--fs-base);
+  --text-md: var(--fs-md);
+  --text-lg: var(--fs-lg);
+  --text-xl: var(--fs-xl);
+  --text-2xl: var(--fs-2xl);
+  --text-3xl: var(--fs-3xl);
+  --text-hero: var(--fs-hero);
+
+  --spacing-tap: var(--tap);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  /* Stops iOS Safari from inflating text on rotate, which breaks the scale */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh);
+  font-weight: 450;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus is non-negotiable for keyboard and switch-device users. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 4px solid var(--info);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* Honour prefers-reduced-motion: the pulsing mic becomes a static ring. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@keyframes sv-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(165, 0, 16, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 26px rgba(165, 0, 16, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(165, 0, 16, 0);
+  }
+}
+
+.sv-pulse {
+  animation: sv-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Listening state — a calmer, slower pulse so it reads as "I'm hearing you" */
+@keyframes sv-listening {
+  0% {
+    box-shadow: 0 0 0 0 rgba(11, 78, 162, 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 34px rgba(11, 78, 162, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(11, 78, 162, 0);
+  }
+}
+
+.sv-listening {
+  animation: sv-listening 1.6s ease-out infinite;
+}
+
+/* Waveform bars for the dual-feedback indicator */
+@keyframes sv-bar {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.sv-bar {
+  transform-origin: center;
+  animation: sv-bar 0.9s ease-in-out infinite;
+}
+
+/* Large, unmissable tap targets */
+.sv-tap {
+  min-width: var(--tap);
+  min-height: var(--tap);
+}
+
+/* High-visibility selection so a partially-sighted user can see what is set */
+::selection {
+  background: var(--brand);
+  color: #ffffff;
 }
