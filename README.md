@@ -21,6 +21,12 @@ The conversation is built to feel like a person, not a form:
   (production agents endpoint at 0.2–0.6s), so a considered sentence stays one
   turn instead of being chopped into fragments.
 - **English by default**, switchable at any time; the choice is remembered.
+- **It does not sound like a form.** Replies acknowledge what you said, are
+  phrased differently each time rather than repeating one fixed sentence, and
+  common courtesies ("多謝" / "thanks") get a human answer instead of
+  "I didn't catch that". The safety-critical copy — the PIN prompt, the scam
+  caution and the "no money moved" reassurance — is deliberately *never*
+  varied, so it stays exact and auditable.
 
 ### Speaking real Cantonese (廣東話)
 

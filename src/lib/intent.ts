@@ -26,6 +26,7 @@ export const INTENTS = [
   "confirm",
   "deny",
   "repeat",
+  "thanks",
   "unknown",
 ] as const;
 
@@ -133,6 +134,17 @@ const LEXICON: Record<string, string[]> = {
     "唔好", "不好", "不要", "唔使", "不用", "唔得", "取消", "算了", "咪住", "等等",
     "停", "停一停", "no", "nope", "cancel", "stop", "dont", "do not", "wait", "never mind",
     "唔想", "不想",
+  ],
+  /**
+   * Social turns. Bare 唔該 is deliberately excluded: in Cantonese it means
+   * "please" or "excuse me" at least as often as "thanks", so it would fire on
+   * ordinary requests. Only the unambiguous forms appear here.
+   */
+  thanks: [
+    "多謝", "多谢", "多謝晒", "多谢晒", "唔該晒", "唔該哂", "感謝", "感谢",
+    "麻煩晒", "麻烦晒",
+    "thank you", "thanks", "thank u", "thx", "thanks a lot", "thank you so much",
+    "many thanks", "thanks so much",
   ],
   repeat: [
     "再講一次", "再讲一次", "再說一次", "再说一次", "repeat", "講多次", "讲多次",
@@ -276,6 +288,13 @@ export function parseIntent(utterance: string): ParsedIntent {
   }
   if (confirmation === "confirm") {
     return { ...base, intent: "confirm", confidence: 0.75 };
+  }
+
+  // Social turns sit after confirmation so that "no thanks" stays a refusal,
+  // and after the transactional rules so "thanks, transfer $200" still moves
+  // money.
+  if (score("thanks") > 0) {
+    return { ...base, intent: "thanks", confidence: 0.8 };
   }
 
   const repeatHits = score("repeat");

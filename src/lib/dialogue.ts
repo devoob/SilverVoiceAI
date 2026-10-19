@@ -35,6 +35,13 @@ import { detectConfirmation, parseIntent } from "./intent";
 import { speakableAmount } from "./numerals";
 import { assessTransaction, detectCoercion, type FindingCode } from "./guardrails";
 import { strings, type Language } from "./i18n";
+import {
+  acknowledge,
+  fallbackVariants,
+  greetingVariants,
+  rotate,
+  socialReply,
+} from "./phrasing";
 
 export type CardPayload =
   | { kind: "balance"; account: Account; tip?: string }
@@ -138,8 +145,8 @@ function billerName(bill: Bill, lang: Language): string {
 
 const SAVINGS_TIPS = {
   cantonese: [
-    "你每個月交完賬單之後，其實仲有大約三千蚊可以靈活運用。如果將其中五百蚊自動轉去一個定期户口，一年之後就連利息都多過六千蚊，而且你完全唔使自己記得去做。",
-    "一個好簡單嘅方法：每交完一張單，就將同樣嘅金額轉去儲蓄户口。等於你慳到幾多，就儲到幾多，唔會影響日常生活。",
+    "你每個月交完賬單之後，其實仲有大約三千蚊可以靈活運用。如果將其中五百蚊自動轉去一個定期戶口，一年之後就連利息都多過六千蚊，而且你完全唔使自己記得去做。",
+    "一個好簡單嘅方法：每交完一張單，就將同樣嘅金額轉去儲蓄戶口。等於你慳到幾多，就儲到幾多，唔會影響日常生活。",
   ],
   putonghua: [
     "你每个月交完账单之后，其实还有大约三千元可以灵活运用。如果将其中五百元自动转去定期户口，一年之后连利息就多过六千元，而且你完全不需要自己记得去做。",
@@ -152,8 +159,58 @@ const SAVINGS_TIPS = {
 } as const;
 
 function pickTip(lang: Language): string {
-  const list = SAVINGS_TIPS[lang];
-  return list[0];
+  // Rotates through every tip. Previously this always returned list[0], so the
+  // second tip was unreachable and "give me advice" repeated itself verbatim.
+  return rotate(`tip:${lang}`, SAVINGS_TIPS[lang]);
+}
+
+/**
+ * Choose one realisation for the current language.
+ *
+ * Every variant of a phrase must carry the same essential facts, because the
+ * tests assert on those facts rather than on the wording.
+ */
+function phrase(
+  lang: Language,
+  key: string,
+  options: Record<Language, readonly string[]>,
+): string {
+  return rotate(`${key}:${lang}`, options[lang]);
+}
+
+/**
+ * A nudge back to whatever action was already in progress, so a social turn
+ * never silently loses the user's place in a transaction.
+ */
+function pendingReminder(state: DialogueState, lang: Language): string {
+  switch (state.phase) {
+    case "awaiting_confirmation":
+      return lang === "cantonese"
+        ? "咁頭先嗰單，仲要唔要幫你交？"
+        : lang === "putonghua"
+          ? "那刚才那笔，还要不要帮你办？"
+          : "So — shall I still go ahead with that?";
+    case "awaiting_transfer_amount":
+      return lang === "cantonese"
+        ? "咁你想轉幾多錢？"
+        : lang === "putonghua"
+          ? "那你想转多少钱？"
+          : "How much would you like to send?";
+    case "awaiting_bill_choice":
+      return lang === "cantonese"
+        ? "咁你想交邊張單？"
+        : lang === "putonghua"
+          ? "那你想交哪一张账单？"
+          : "Which bill would you like to pay?";
+    case "awaiting_scam_decision":
+      return lang === "cantonese"
+        ? "咁你想繼續，定係停一停？"
+        : lang === "putonghua"
+          ? "那你想继续，还是先停一停？"
+          : "Would you like to continue, or shall we stop?";
+    default:
+      return "";
+  }
 }
 
 async function proposeAction(
@@ -228,12 +285,25 @@ async function proposeAction(
     const bill = getBill(pending.billId)!;
     const biller = billerName(bill, lang);
     const amount = spokenMoney(pending.amountCents, lang);
-    const speak =
-      lang === "cantonese"
-        ? `你有一張 ${amount} 嘅${biller}賬單，${duePhrase(bill, lang)}。要而家幫你交嗎？`
-        : lang === "putonghua"
-          ? `你有一张 ${amount} 的${biller}账单，${duePhrase(bill, lang)}。要现在帮你缴交吗？`
-          : `You have a ${biller} bill for ${amount}, ${duePhrase(bill, lang)}. Shall I pay it now?`;
+    const due = duePhrase(bill, lang);
+    const core = phrase(lang, "billProposal", {
+      cantonese: [
+        `你有一張 ${amount} 嘅${biller}賬單，${due}。要而家幫你交嗎？`,
+        `搵到張${biller}單，${amount}，${due}。而家幫你交好嗎？`,
+        `${biller}嗰張單係 ${amount}，${due}。即刻幫你交？`,
+      ],
+      putonghua: [
+        `你有一张 ${amount} 的${biller}账单，${due}。要现在帮你缴交吗？`,
+        `找到一张${biller}账单，${amount}，${due}。现在帮你交好吗？`,
+        `${biller}那张账单是 ${amount}，${due}。马上帮你交？`,
+      ],
+      english: [
+        `you have a ${biller} bill for ${amount}, ${due}. Shall I pay it now?`,
+        `I found a ${biller} bill for ${amount}, ${due}. Want me to take care of it?`,
+        `there's a ${biller} bill of ${amount} here, ${due}. Pay it now?`,
+      ],
+    });
+    const speak = `${acknowledge(lang)}${core}`;
     return turn(
       { ...initialState, phase: "awaiting_confirmation", pending },
       { phase: "awaiting_confirmation", pending, speak, card: { kind: "bill_confirm", bill } },
@@ -242,12 +312,25 @@ async function proposeAction(
 
   const payee = getPayee(pending.payeeId)!;
   const amount = spokenMoney(pending.amountCents, lang);
-  const speak =
-    lang === "cantonese"
-      ? `好，我會轉 ${amount} 畀${name(payee, lang)}，轉數快即刻到。確認嗎？`
-      : lang === "putonghua"
-        ? `好，我会转 ${amount} 给${name(payee, lang)}，转数快即时到账。确认吗？`
-        : `Right, I'll send ${amount} to ${name(payee, lang)} by FPS. It arrives instantly. Shall I go ahead?`;
+  const who = name(payee, lang);
+  const core = phrase(lang, "transferProposal", {
+    cantonese: [
+      `我會轉 ${amount} 畀${who}，轉數快即刻到。確認嗎？`,
+      `轉 ${amount} 畀${who}，即時到賬。可以嗎？`,
+      `即係 ${amount} 過數畀${who}。啱唔啱？`,
+    ],
+    putonghua: [
+      `我会转 ${amount} 给${who}，转数快即时到账。确认吗？`,
+      `转 ${amount} 给${who}，马上到账。可以吗？`,
+      `也就是 ${amount} 转给${who}。对吗？`,
+    ],
+    english: [
+      `I'll send ${amount} to ${who} by FPS — it arrives instantly. Shall I go ahead?`,
+      `that's ${amount} to ${who}, arriving straight away. Okay?`,
+      `so, ${amount} over to ${who}. Is that right?`,
+    ],
+  });
+  const speak = `${acknowledge(lang)}${core}`;
   return turn(
     { ...initialState, phase: "awaiting_confirmation", pending },
     {
@@ -329,18 +412,48 @@ function executePending(
   // if the payee record changed during the turn).
   const who = localiseName(receipt.counterparty, lang);
 
-  const speak =
-    lang === "cantonese"
-      ? receipt.kind === "bill_payment"
-        ? `搞掂！已經幫你交咗 ${spokenMoney(receipt.amountCents, lang)}，交易編號 ${spokenRef(receipt.id)}。你而家仲有 ${spokenMoney(account.balanceCents, lang)}。`
-        : `搞掂！已經轉咗 ${spokenMoney(receipt.amountCents, lang)} 畀${who}。你而家仲有 ${spokenMoney(account.balanceCents, lang)}。`
-      : lang === "putonghua"
-        ? receipt.kind === "bill_payment"
-          ? `办妥了！已经帮你缴交了 ${spokenMoney(receipt.amountCents, lang)}，交易编号 ${spokenRef(receipt.id)}。你现在还有 ${spokenMoney(account.balanceCents, lang)}。`
-          : `办妥了！已经转了 ${spokenMoney(receipt.amountCents, lang)} 给${who}。你现在还有 ${spokenMoney(account.balanceCents, lang)}。`
-        : receipt.kind === "bill_payment"
-          ? `All done. I've paid ${spokenMoney(receipt.amountCents, lang)}, reference ${spokenRef(receipt.id)}. Your balance is now ${spokenMoney(account.balanceCents, lang)}.`
-          : `All done. I've sent ${spokenMoney(receipt.amountCents, lang)} to ${who}. Your balance is now ${spokenMoney(account.balanceCents, lang)}.`;
+  const paid = spokenMoney(receipt.amountCents, lang);
+  const left = spokenMoney(account.balanceCents, lang);
+  const ref = spokenRef(receipt.id);
+
+  const speak = phrase(lang, `receipt:${receipt.kind}`, {
+    cantonese:
+      receipt.kind === "bill_payment"
+        ? [
+            `搞掂！已經幫你交咗 ${paid}，交易編號 ${ref}。你而家仲有 ${left}。`,
+            `交妥喇，${paid} 已經過數，編號 ${ref}。剩返 ${left}。`,
+            `手續辦好，繳咗 ${paid}，編號 ${ref}，戶口仲有 ${left}。`,
+          ]
+        : [
+            `搞掂！已經轉咗 ${paid} 畀${who}。你而家仲有 ${left}。`,
+            `轉好喇，${paid} 已經到咗${who}嗰邊。剩返 ${left}。`,
+            `完成，${paid} 已經過畀${who}，戶口仲有 ${left}。`,
+          ],
+    putonghua:
+      receipt.kind === "bill_payment"
+        ? [
+            `办妥了！已经帮你缴交了 ${paid}，交易编号 ${ref}。你现在还有 ${left}。`,
+            `交好了，${paid} 已经过账，编号 ${ref}。还剩 ${left}。`,
+            `手续办好，缴了 ${paid}，编号 ${ref}，账户还有 ${left}。`,
+          ]
+        : [
+            `办妥了！已经转了 ${paid} 给${who}。你现在还有 ${left}。`,
+            `转好了，${paid} 已经到${who}那边。还剩 ${left}。`,
+            `完成，${paid} 已经转给${who}，账户还有 ${left}。`,
+          ],
+    english:
+      receipt.kind === "bill_payment"
+        ? [
+            `All done. I've paid ${paid}, reference ${ref}. Your balance is now ${left}.`,
+            `That's paid — ${paid} settled, reference ${ref}. You now have ${left}.`,
+            `Paid. ${paid} went through under reference ${ref}, leaving ${left}.`,
+          ]
+        : [
+            `All done. I've sent ${paid} to ${who}. Your balance is now ${left}.`,
+            `That's sent — ${paid} is with ${who}. You now have ${left}.`,
+            `Done. ${paid} has gone to ${who}, leaving ${left}.`,
+          ],
+  });
 
   return turn(initialState, {
     phase: "idle",
@@ -396,9 +509,13 @@ async function handleIntent(
       // A natural, short opener — not a recitation of features. The capability
       // list still appears on screen, which is where a low-vision or
       // hard-of-hearing user can read it at their own pace.
+      const speak = rotate(`greeting:${lang}`, [
+        t.mic.greeting,
+        ...greetingVariants(lang),
+      ]);
       return turn(initialState, {
         phase: "idle",
-        speak: t.mic.greeting,
+        speak,
         card: { kind: "capabilities" },
       });
     }
@@ -413,15 +530,27 @@ async function handleIntent(
 
     case "balance": {
       const account = getAccount();
-      const speak =
-        lang === "cantonese"
-          ? `你嘅儲蓄帳戶尾號 ${account.maskedNumber}，而家可用結餘係 ${spokenMoney(account.balanceCents, lang)}。`
-          : lang === "putonghua"
-            ? `你的储蓄账户尾号 ${account.maskedNumber}，现在可用结余是 ${spokenMoney(account.balanceCents, lang)}。`
-            : `Your savings account ending ${account.maskedNumber} has an available balance of ${spokenMoney(account.balanceCents, lang)}.`;
+      const amount = spokenMoney(account.balanceCents, lang);
+      const core = phrase(lang, "balance", {
+        cantonese: [
+          `你嘅儲蓄戶口尾號 ${account.maskedNumber}，而家可用結餘係 ${amount}。`,
+          `你個戶口尾號 ${account.maskedNumber}，而家有 ${amount} 可以用。`,
+          `尾號 ${account.maskedNumber} 嘅儲蓄戶口，可用結餘 ${amount}。`,
+        ],
+        putonghua: [
+          `你的储蓄账户尾号 ${account.maskedNumber}，现在可用结余是 ${amount}。`,
+          `你尾号 ${account.maskedNumber} 的账户，现在有 ${amount} 可以用。`,
+          `尾号 ${account.maskedNumber} 的储蓄账户，可用结余 ${amount}。`,
+        ],
+        english: [
+          `your savings account ending ${account.maskedNumber} has ${amount} available.`,
+          `you've got ${amount} available in the account ending ${account.maskedNumber}.`,
+          `the account ending ${account.maskedNumber} currently holds ${amount}.`,
+        ],
+      });
       return turn(initialState, {
         phase: "idle",
-        speak,
+        speak: `${acknowledge(lang)}${core}`,
         card: { kind: "balance", account },
       });
     }
@@ -429,15 +558,27 @@ async function handleIntent(
     case "advice": {
       const account = getAccount();
       const tip = pickTip(lang);
-      const lead =
-        lang === "cantonese"
-          ? `你而家有 ${spokenMoney(account.balanceCents, lang)}。`
-          : lang === "putonghua"
-            ? `你现在有 ${spokenMoney(account.balanceCents, lang)}。`
-            : `You currently have ${spokenMoney(account.balanceCents, lang)}.`;
+      const amount = spokenMoney(account.balanceCents, lang);
+      const lead = phrase(lang, "adviceLead", {
+        cantonese: [
+          `你而家有 ${amount}。`,
+          `你戶口而家係 ${amount}。`,
+          `睇一睇你嘅結餘，有 ${amount}。`,
+        ],
+        putonghua: [
+          `你现在有 ${amount}。`,
+          `你账户现在是 ${amount}。`,
+          `看一下你的结余，有 ${amount}。`,
+        ],
+        english: [
+          `you currently have ${amount}. `,
+          `your balance sits at ${amount}. `,
+          `there's ${amount} in the account. `,
+        ],
+      });
       return turn(initialState, {
         phase: "idle",
-        speak: `${lead}${tip}`,
+        speak: `${acknowledge(lang)}${lead}${tip}`,
         card: { kind: "balance", account, tip },
       });
     }
@@ -454,12 +595,22 @@ async function handleIntent(
       const summary = bills
         .map((b) => `${billerName(b, lang)} ${spokenMoney(b.amountCents, lang)}`)
         .join(lang === "english" ? ", " : "、");
-      const speak =
-        lang === "cantonese"
-          ? `你有 ${bills.length} 張單未交：${summary}。想交邊張？`
-          : lang === "putonghua"
-            ? `你有 ${bills.length} 张账单未缴：${summary}。想缴哪一张？`
-            : `You have ${bills.length} bills to pay: ${summary}. Which one would you like to pay?`;
+      const count = bills.length;
+      const core = phrase(lang, "listBills", {
+        cantonese: [
+          `你有 ${count} 張單未交：${summary}。想交邊張？`,
+          `仲有 ${count} 張單未找數：${summary}。想先交邊張？`,
+        ],
+        putonghua: [
+          `你有 ${count} 张账单未缴：${summary}。想缴哪一张？`,
+          `还有 ${count} 张账单没交：${summary}。想先缴哪一张？`,
+        ],
+        english: [
+          `you have ${count} bills to pay: ${summary}. Which one would you like to pay?`,
+          `there are ${count} bills outstanding: ${summary}. Which shall we do first?`,
+        ],
+      });
+      const speak = `${acknowledge(lang)}${core}`;
       return turn(
         { ...initialState, phase: bills.length > 1 ? "awaiting_bill_choice" : "idle" },
         { phase: bills.length > 1 ? "awaiting_bill_choice" : "idle", speak, card: { kind: "bills", bills } },
@@ -550,7 +701,13 @@ async function handleIntent(
 
     case "unknown":
     default: {
-      return turn(initialState, { phase: "idle", speak: t.errors.unknownIntent, card: { kind: "capabilities" } });
+      // Varied rather than the same menu every time, but every realisation
+      // still names something concrete the user can say.
+      const speak = rotate(`fallback:${lang}`, [
+        t.errors.unknownIntent,
+        ...fallbackVariants(lang),
+      ]);
+      return turn(initialState, { phase: "idle", speak, card: { kind: "capabilities" } });
     }
   }
 }
@@ -647,6 +804,26 @@ export async function advance(
     });
   }
 
+  /**
+   * A social turn can arrive at any point, including mid-transaction. Answer it
+   * warmly and keep whatever was pending, so being polite never costs the user
+   * their place in the flow. Handled before the phase branches for that reason.
+   */
+  if (parseIntent(text).intent === "thanks") {
+    const reminder = pendingReminder(state, lang);
+    const thanks = socialReply("thanks", lang);
+    const speak = reminder
+      ? `${thanks}${lang === "english" ? " " : ""}${reminder}`
+      : thanks;
+    return turn(state, {
+      phase: state.phase,
+      pending: state.pending,
+      warnings: state.warnings,
+      speak,
+      card: null,
+    });
+  }
+
   if (state.phase === "awaiting_scam_decision") {
     const decision = detectConfirmation(text);
     if (decision === "confirm" && state.pending) {
@@ -700,12 +877,20 @@ export async function advance(
     return turn(state, {
       phase: "awaiting_confirmation",
       pending: state.pending,
-      speak:
-        lang === "cantonese"
-          ? `${t.cards.confirmQuestion}你可以講「係」或者「唔好」。`
-          : lang === "putonghua"
-            ? `${t.cards.confirmQuestion}你可以说「是」或者「不要」。`
-            : `${t.cards.confirmQuestion} You can say "yes" or "no".`,
+      speak: phrase(lang, "reaskConfirm", {
+        cantonese: [
+          `唔好意思，我唔肯定你嘅意思。即係要，定係唔要？`,
+          `你可以答我「係」或者「唔好」，我就照做。`,
+        ],
+        putonghua: [
+          `不好意思，我不太确定你的意思。是要，还是不要？`,
+          `你可以回我「是」或者「不要」，我就照办。`,
+        ],
+        english: [
+          `Sorry, I'm not sure I followed. Is that a yes or a no?`,
+          `Just say "yes" or "no" and I'll take it from there.`,
+        ],
+      }),
     });
   }
 

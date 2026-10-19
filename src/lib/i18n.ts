@@ -312,7 +312,7 @@ export const STRINGS: Record<Language, Strings> = {
         "如果有陌生人打電話或者傳訊息叫你轉數快，請即刻掛線，然後致電防騙易熱線 18222。銀行職員永遠唔會問你攞密碼。",
     },
     errors: {
-      unknownIntent: "唔好意思，我听唔明。你可以講「查結餘」、「交電費」或者「轉數快」。",
+      unknownIntent: "唔好意思，我聽唔明。你可以講「查結餘」、「交電費」或者「轉數快」。",
       insufficientFunds: "你嘅結餘唔夠俾呢筆款項。",
       billNotFound: "搵唔到相關嘅賬單。",
       payeeNotFound: "搵唔到呢個收款人。",

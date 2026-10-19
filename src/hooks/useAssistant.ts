@@ -29,6 +29,7 @@ import {
 } from "@/lib/dialogue";
 import { resetLedger, resetPinLock } from "@/lib/bank";
 import { detectConfirmation } from "@/lib/intent";
+import { resetPhrasing } from "@/lib/phrasing";
 import { DEFAULT_LANGUAGE, LANGUAGE_META, strings, type Language } from "@/lib/i18n";
 import type { RecognitionErrorCode } from "@/lib/speech";
 import { useSpeechRecognition, useSpeechSynthesis, type ListeningStatus } from "./useSpeech";
@@ -337,6 +338,9 @@ export function useAssistant() {
   const startCall = useCallback(async () => {
     resetLedger();
     resetPinLock();
+    // Start each call from the first realisation: a live demo then replays
+    // identically from the top, while still varying as the call goes on.
+    resetPhrasing();
     setMessages([]);
     setCard(null);
     setDialogue(initialState);
@@ -475,6 +479,7 @@ export function useAssistant() {
     resetDemo: () => {
       resetLedger();
       resetPinLock();
+      resetPhrasing();
       clearNudge();
       nudgeCountRef.current = 0;
       setMessages([]);
